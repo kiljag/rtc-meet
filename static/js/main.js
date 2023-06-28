@@ -179,7 +179,6 @@ function onmessage(event) {
                 if (isHost) {
                     createOffer();
                 }
-
                 break;
             }
 
@@ -197,7 +196,6 @@ function onmessage(event) {
                 else if (ice !== undefined) {
                     processIceCandidate(ice);
                 }
-
                 break;
             }
 
@@ -284,9 +282,69 @@ async function joinRoom() {
     }
 }
 
+let screenIsShared = false;
+
+async function startScreenCapture() {
+    try {
+        const options = {
+            video: {
+                cursor: 'always',
+            },
+            audio: false,
+        }
+
+        let videoElement = document.getElementById('video-share-screen');
+        let stream = await navigator.mediaDevices.getDisplayMedia(options);
+        videoElement.srcObject = stream;
+        stream.getTracks().forEach((track) => {
+            console.log(track);
+        });
+
+        if (peerConnection !== null) {
+            stream.getTracks().forEach((track) => {
+                peerConnection.addTrack(track, stream);
+            });
+        }
+
+        screenIsShared = true;
+
+    } catch (err) {
+        console.error('error in starting screen capture', err);
+    }
+}
+
+async function stopScreenCapture() {
+    try {
+        let videoElement = document.getElementById('video-share-screen');
+        let tracks = videoElement.srcObject.getTracks();
+        tracks.forEach((track) => track.stop());
+        videoElement.srcObject = null;
+        screenIsShared = false;
+
+    } catch (err) {
+        console.log('error in stopping screen capture', err);
+    }
+}
+
+async function toggleScreenShare() {
+    try {
+        if (!screenIsShared) {
+            await startScreenCapture();
+            screenIsShared = true;
+        } else {
+            await stopScreenCapture();
+            screenIsShared = false;
+        }
+
+    } catch (err) {
+        console.log('error in toggling screen share', err);
+    }
+}
+
 async function init() {
     document.getElementById('btn-create-room').addEventListener('click', createRoom);
     document.getElementById('btn-join-room').addEventListener('click', joinRoom);
+    document.getElementById('btn-share-screen').addEventListener('click', toggleScreenShare);
 }
 
 init();

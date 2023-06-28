@@ -37,10 +37,14 @@ wss.on('connection', (ws) => {
 
         try {
             const message = JSON.parse(data.toString());
-            console.log('recieved : ', message);
-
             const type = message['type'];
             const payload = message['payload'];
+
+            if (type !== TYPE_RTC_MESSAGE) {
+                console.log('recieved : ', message);
+            } else {
+                console.log('recieved', type);
+            }
 
             switch (type) {
 
@@ -59,6 +63,7 @@ wss.on('connection', (ws) => {
                         roomMap[roomId] = {};
                         roomMap[roomId]['host'] = {
                             name: name,
+                            sessionId: ws.sessionId,
                             wsocket: ws,
                         }
                         sessionIdMap[ws.sessionId] = roomId;
@@ -74,7 +79,6 @@ wss.on('connection', (ws) => {
                         }));
 
                     } else {
-
                         ws.send(JSON.stringify({
                             type: TYPE_ERROR,
                             payload: {
@@ -92,6 +96,7 @@ wss.on('connection', (ws) => {
                     if (roomMap[roomId] !== undefined) {
                         roomMap[roomId]['guest'] = {
                             name: name,
+                            sessionId: ws.sessionId,
                             wsocket: ws,
                         }
                         sessionIdMap[ws.sessionId] = roomId;
@@ -103,6 +108,14 @@ wss.on('connection', (ws) => {
                                 sessionId: ws.sessionId,
                             },
                         }));
+
+                        // send both joined
+                        roomMap[roomId]['host'].wsocket.send(JSON.stringify({
+                            type: TYPE_BOTH_JOINED,
+                        }));
+                        roomMap[roomId]['guest'].wsocket.send(JSON.stringify({
+                            type: TYPE_BOTH_JOINED,
+                        }))
 
                     } else {
                         ws.send(JSON.stringify({
@@ -116,6 +129,62 @@ wss.on('connection', (ws) => {
                 }
 
                 case TYPE_RTC_MESSAGE: {
+                    // console.log(sessionIdMap);
+                    // console.log(roomMap);
+
+                    let sessionId = ws.sessionId;
+                    let roomId = sessionIdMap[sessionId];
+                    let room = roomMap[roomId];
+                    if (roomId === undefined || room === undefined) {
+                        console.log('invalid roomId');
+                        ws.close();
+                        return;
+                    }
+
+                    const offer = payload['offer'];
+                    const answer = payload['answer'];
+                    const ice = payload['ice'];
+
+                    try {
+                        if (offer !== undefined) {
+                            console.log('received offer');
+                            room['guest'].wsocket.send(JSON.stringify({
+                                type: TYPE_RTC_MESSAGE,
+                                payload: {
+                                    offer: offer,
+                                }
+                            }));
+
+                        } else if (answer !== undefined) {
+                            console.log('received answer');
+                            room['host'].wsocket.send(JSON.stringify({
+                                type: TYPE_RTC_MESSAGE,
+                                payload: {
+                                    answer: answer,
+                                }
+                            }))
+
+                        } else if (ice !== undefined) {
+                            console.log('received ice');
+                            let message = {
+                                type: TYPE_RTC_MESSAGE,
+                                payload: {
+                                    ice: ice,
+                                }
+                            }
+
+                            if (sessionId === room['host'].sessionId) {
+                                console.log('sending ice to host');
+                                room['guest'].wsocket.send(JSON.stringify(message));
+                            } else if (sessionId === room['guest'].sessionId) {
+                                console.log('sending ice to guest');
+                                room['host'].wsocket.send(JSON.stringify(message));
+                            }
+                        }
+
+                    } catch (err) {
+                        console.error('error in handling rtc message: ', err);
+                    }
                     break;
                 }
 

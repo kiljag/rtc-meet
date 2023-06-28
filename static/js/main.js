@@ -74,8 +74,84 @@ async function createPeerConnection() {
             });
         }
 
+        videoElement = document.getElementById('video-player-2');
+        if (videoElement !== null) {
+            videoElement.srcObject = remoteStream;
+        }
+
     } catch (err) {
         console.error('error in creating peer connection');
+    }
+}
+
+async function setIceCandidateHandler() {
+    peerConnection.onicecandidate = async (event) => {
+        if (event.candidate) {
+            console.log('sending ice candidate');
+            wsocket.send(JSON.stringify({
+                type: TYPE_RTC_MESSAGE,
+                payload: {
+                    'ice': JSON.stringify(event.candidate),
+                }
+            }));
+        }
+    }
+}
+
+async function createOffer() {
+    try {
+        await createPeerConnection();
+        const offer = await peerConnection.createOffer();
+        peerConnection.setLocalDescription(offer);
+        wsocket.send(JSON.stringify({
+            type: TYPE_RTC_MESSAGE,
+            payload: {
+                'offer': JSON.stringify(offer),
+            }
+        }));
+        setIceCandidateHandler();
+
+    } catch (err) {
+        console.error('error creating offer : ', err);
+    }
+}
+
+async function processOffer(offer) {
+    try {
+        await createPeerConnection();
+        peerConnection.setRemoteDescription(JSON.parse(offer));
+        const answer = await peerConnection.createAnswer();
+        peerConnection.setLocalDescription(answer);
+        wsocket.send(JSON.stringify({
+            type: TYPE_RTC_MESSAGE,
+            payload: {
+                'answer': JSON.stringify(answer),
+            }
+        }));
+        setIceCandidateHandler();
+
+    } catch (err) {
+        console.error('error processing offer ', err);
+    }
+}
+
+async function processAnswer(answer) {
+    try {
+        peerConnection.setRemoteDescription(JSON.parse(answer));
+
+    } catch (err) {
+        console.error('error processing answer ', err);
+    }
+}
+
+async function processIceCandidate(ice) {
+    try {
+        let candidate = JSON.parse(ice);
+        console.log('candidate : ', candidate);
+        peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+
+    } catch (err) {
+        console.error('error processing ice candidate ', err);
     }
 }
 
@@ -99,9 +175,35 @@ function onmessage(event) {
                 break;
             }
 
+            case TYPE_BOTH_JOINED: {
+                if (isHost) {
+                    createOffer();
+                }
+
+                break;
+            }
+
             case TYPE_RTC_MESSAGE: {
+                let offer = payload['offer'];
+                let answer = payload['answer'];
+                let ice = payload['ice'];
 
+                if (offer !== undefined) {
+                    processOffer(offer);
+                }
+                else if (answer !== undefined) {
+                    processAnswer(answer);
+                }
+                else if (ice !== undefined) {
+                    processIceCandidate(ice);
+                }
 
+                break;
+            }
+
+            default: {
+                console.log('invlaid type : ', type);
+                break;
             }
         }
 
@@ -130,6 +232,7 @@ async function initConnection() {
     }
 
     wsocket = await createConnection();
+    wsocket.onmessage = onmessage;
     heartBeatHandler = setInterval(() => {
         wsocket.send(JSON.stringify({
             type: TYPE_HEARTBEAT,
